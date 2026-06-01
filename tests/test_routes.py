@@ -1,18 +1,23 @@
+import os
 import pytest
-import pytest_asyncio
 import aiosqlite
+from pathlib import Path
 from unittest.mock import patch, AsyncMock
 from httpx import AsyncClient, ASGITransport
 from app.database import update_run
 from app.models import RunStatus
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def client(tmp_path):
     """Provide a test client with temp DB and work dir."""
     import app.config as cfg
-    cfg.DB_PATH = str(tmp_path / "test.db")
-    cfg.RUN_DIR = str(tmp_path / "work")
+    data_dir = Path(os.environ.get("DATA_DIR", str(tmp_path)))
+    run_root = data_dir / "pytest-runs"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    cfg.DB_PATH = str(run_root / "test.db")
+    cfg.RUN_DIR = str(run_root)
     cfg.NEXTFLOW_BIN = "nextflow"
 
     from app.main import app, lifespan as app_lifespan
@@ -32,6 +37,43 @@ async def test_submit_run_returns_202(client):
     data = resp.json()
     assert data["status"] == "queued"
     assert "id" in data
+
+
+@pytest.mark.asyncio
+async def test_submit_run_creates_artifacts_and_completes(client):
+    class FakeProcess:
+        def __init__(self, log_path: Path, outdir: Path):
+            self.pid = 4242
+            self._log_path = log_path
+            self._outdir = outdir
+
+        async def wait(self):
+            self._log_path.parent.mkdir(parents=True, exist_ok=True)
+            self._log_path.write_text("nextflow log contents\n")
+            self._outdir.mkdir(parents=True, exist_ok=True)
+            (self._outdir / "result.txt").write_text("ok\n")
+            return 0
+
+    async def fake_create_subprocess_exec(*cmd, **kwargs):
+        log_path = Path(cmd[cmd.index("-log") + 1])
+        outdir = Path(cmd[-1])
+        return FakeProcess(log_path, outdir)
+
+    with patch("app.runner.asyncio.create_subprocess_exec", side_effect=fake_create_subprocess_exec):
+        resp = await client.post("/runs", json={"params": {"input": "x", "outdir": "/out"}})
+
+    assert resp.status_code == 202
+    run_id = resp.json()["id"]
+
+    from app.main import app
+
+    run_dir = Path(app.state.config.RUN_DIR) / run_id
+    assert (run_dir / "nextflow.log").read_text() == "nextflow log contents\n"
+    assert (run_dir / "results" / "result.txt").read_text() == "ok\n"
+
+    detail = await client.get(f"/runs/{run_id}")
+    assert detail.status_code == 200
+    assert detail.json()["status"] == "completed"
 
 
 @pytest.mark.asyncio
@@ -75,6 +117,23 @@ async def test_get_logs_empty_when_no_file(client):
 
 
 @pytest.mark.asyncio
+async def test_get_logs_returns_log_contents(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        r = await client.post("/runs", json={"params": {}})
+    run_id = r.json()["id"]
+
+    from app.main import app
+
+    log_path = Path(app.state.config.RUN_DIR) / run_id / "nextflow.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("hello from nextflow\n")
+
+    resp = await client.get(f"/runs/{run_id}/logs")
+    assert resp.status_code == 200
+    assert resp.text == "hello from nextflow\n"
+
+
+@pytest.mark.asyncio
 async def test_cancel_non_running_run_returns_409(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
         r = await client.post("/runs", json={"params": {}})
@@ -96,3 +155,5 @@ async def test_cancel_running_run_returns_204(client):
     with patch("app.runner.os.kill"):
         resp = await client.delete(f"/runs/{run_id}")
     assert resp.status_code == 204
+
+

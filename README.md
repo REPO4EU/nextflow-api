@@ -7,7 +7,7 @@ This service exposes a small FastAPI wrapper around the `nf-core/diseasemoduledi
 ### 1. Clone this repository
 
 ```bash
-git https://github.com/REPO4EU/nextflow-api.git
+git clone https://github.com/REPO4EU/nextflow-api.git
 cd nextflow-api
 ```
 
@@ -86,3 +86,33 @@ ${DATA_DIR}/runs/<run_id>/
 - `results/` contains the pipeline outputs produced by the run.
 
 The API also stores run metadata in `data/runs.db`, including status, timestamps, and exit code.
+
+## Curl Example Run
+
+Here is a simple end-to-end flow using `curl` after the container is up.
+
+Submit a run:
+
+```bash
+curl -s -X POST http://localhost:8000/runs \
+  -H 'Content-Type: application/json' \
+  -d '{"params":{}}'
+```
+
+Save the returned `id`, then poll the run until it finishes:
+
+```bash
+curl -s http://localhost:8000/runs/<run_id>
+```
+
+Read the Nextflow log:
+
+```bash
+curl -s http://localhost:8000/runs/<run_id>/logs
+```
+
+List all runs:
+
+```bash
+curl -s http://localhost:8000/runs
+```

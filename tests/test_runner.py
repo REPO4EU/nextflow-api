@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 import aiosqlite
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 from app.database import init_db, insert_run, get_run
 from app.models import RunStatus
 from app.runner import launch_run, cancel_run, is_pid_alive
@@ -74,6 +74,28 @@ async def test_launch_run_sets_failed_on_nonzero_exit(db_path, tmp_path):
         row = await get_run(db, "run-2")
     assert row["status"] == RunStatus.failed
     assert row["exit_code"] == 1
+
+
+@pytest.mark.asyncio
+async def test_launch_run_sets_failed_when_subprocess_cannot_start(db_path, tmp_path):
+    work_dir = str(tmp_path / "work")
+    async with aiosqlite.connect(db_path) as db:
+        await init_db(db)
+        await insert_run(db, run_id="run-3", params={}, created_at="2026-01-01T00:00:00Z")
+
+        with patch("app.runner.asyncio.create_subprocess_exec", side_effect=RuntimeError("boom")):
+            with pytest.raises(RuntimeError, match="boom"):
+                await launch_run(
+                    db=db,
+                    run_id="run-3",
+                    params={},
+                    pipeline_path="/pipeline/main.nf",
+                    run_dir=work_dir,
+                    nextflow_bin="nextflow",
+                )
+
+        row = await get_run(db, "run-3")
+    assert row["status"] == RunStatus.queued
 
 
 @pytest.mark.asyncio
