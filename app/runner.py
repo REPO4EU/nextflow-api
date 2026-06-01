@@ -31,13 +31,14 @@ async def launch_run(
     pipeline_path: str,
     run_dir: str,
     nextflow_bin: str,
+    profile: str = "docker",
 ) -> None:
     run_work_dir = Path(run_dir) / run_id / "work"
     run_work_dir.mkdir(parents=True, exist_ok=True)
     log_path =  Path(run_dir) / run_id / "nextflow.log"
     outdir = Path(run_dir) / run_id / "results"
 
-    cmd = [nextflow_bin, "-log", str(log_path),"run", pipeline_path, "-profile", "test,docker", "-work-dir", str(run_work_dir)]
+    cmd = [nextflow_bin, "-log", str(log_path), "run", pipeline_path, "-profile", profile, "-work-dir", str(run_work_dir)]
     for key, value in params.items():
         cmd += [f"--{key}", str(value)]
     cmd += ["--outdir", str(outdir)]

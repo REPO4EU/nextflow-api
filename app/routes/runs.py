@@ -36,6 +36,7 @@ async def submit_run(
         db=db,
         run_id=run_id,
         params=body.params,
+        profile=body.profile,
         pipeline_path=cfg.PIPELINE_PATH,
         run_dir=cfg.RUN_DIR,
         nextflow_bin=cfg.NEXTFLOW_BIN,

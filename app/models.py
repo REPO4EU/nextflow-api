@@ -14,6 +14,7 @@ class RunStatus(str, Enum):
 
 class SubmitRequest(BaseModel):
     params: dict[str, Any]
+    profile: str = "docker"
 
 
 class SubmitResponse(BaseModel):

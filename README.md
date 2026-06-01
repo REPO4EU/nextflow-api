@@ -70,6 +70,8 @@ curl -X POST http://localhost:8000/runs \
   -d '{"params":{"input":"/path/to/input.json"}}'
 ```
 
+You can also add `"profile": "docker,test"` to run the pipeline with the test profile.
+
 ## Result Structure
 
 Each submission gets its own run directory under `data/runs/<run_id>/`.
@@ -91,24 +93,28 @@ The API also stores run metadata in `data/runs.db`, including status, timestamps
 
 Here is a simple end-to-end flow using `curl` after the container is up.
 
-Submit a run:
+Submit a run and store the id:
 
 ```bash
-curl -s -X POST http://localhost:8000/runs \
+run_id=$(curl -s -X POST http://localhost:8000/runs \
   -H 'Content-Type: application/json' \
-  -d '{"params":{}}'
+  -d '{"params":{},"profile":"docker,test"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 ```
 
-Save the returned `id`, then poll the run until it finishes:
+```bash
+echo $run_id
+```
+
+Check the run status:
 
 ```bash
-curl -s http://localhost:8000/runs/<run_id>
+curl -s http://localhost:8000/runs/$run_id
 ```
 
 Read the Nextflow log:
 
 ```bash
-curl -s http://localhost:8000/runs/<run_id>/logs
+curl -s http://localhost:8000/runs/$run_id/logs
 ```
 
 List all runs:
@@ -116,3 +122,5 @@ List all runs:
 ```bash
 curl -s http://localhost:8000/runs
 ```
+
+If you omit `profile`, the API uses `docker` by default.
