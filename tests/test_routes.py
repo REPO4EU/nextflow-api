@@ -12,7 +12,7 @@ async def client(tmp_path):
     """Provide a test client with temp DB and work dir."""
     import app.config as cfg
     cfg.DB_PATH = str(tmp_path / "test.db")
-    cfg.WORK_DIR = str(tmp_path / "work")
+    cfg.RUN_DIR = str(tmp_path / "work")
     cfg.NEXTFLOW_BIN = "nextflow"
 
     from app.main import app, lifespan as app_lifespan

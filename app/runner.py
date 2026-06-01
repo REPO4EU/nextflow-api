@@ -29,16 +29,18 @@ async def launch_run(
     run_id: str,
     params: dict[str, Any],
     pipeline_path: str,
-    work_dir: str,
+    run_dir: str,
     nextflow_bin: str,
 ) -> None:
-    run_work_dir = Path(work_dir) / run_id
+    run_work_dir = Path(run_dir) / run_id / "work"
     run_work_dir.mkdir(parents=True, exist_ok=True)
-    log_path = run_work_dir / "nextflow.log"
+    log_path =  Path(run_dir) / run_id / "nextflow.log"
+    outdir = Path(run_dir) / run_id / "results"
 
-    cmd = [nextflow_bin, "run", pipeline_path, "-work-dir", str(run_work_dir)]
+    cmd = [nextflow_bin, "run", pipeline_path, "-profile", "test,docker", "-work-dir", str(run_work_dir)]
     for key, value in params.items():
         cmd += [f"--{key}", str(value)]
+    cmd += ["--outdir", str(outdir)]
 
     with open(log_path, "w") as log_file:
         proc = await asyncio.create_subprocess_exec(

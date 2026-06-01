@@ -1,15 +1,17 @@
 services:
   nextflow-api:
-    image: nextflow-api:dev
+    image: nextflow-api
     build: .
     ports:
-      - "8000:8000"
+      - "${PORT:-8000}:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${DATA_DIR:-./data}:/data
+      - /usr/bin/docker:/usr/bin/docker:ro
+      - ${DATA_DIR}:${DATA_DIR}
+      - ${PIPELINE_DIR}:${PIPELINE_DIR}
     environment:
-      PIPELINE_PATH: /app/pipeline/main.nf
-      WORK_DIR: /data/work
-      DB_PATH: /data/runs.db
+      PIPELINE_PATH: "${PIPELINE_DIR}/main.nf"
+      RUN_DIR: ${DATA_DIR}/runs
+      DB_PATH: ${DATA_DIR}/runs.db
       NEXTFLOW_BIN: nextflow
     restart: unless-stopped

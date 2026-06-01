@@ -41,7 +41,7 @@ async def test_launch_run_sets_running_status(db_path, tmp_path):
                 run_id="run-1",
                 params={"input": "x", "outdir": "/out"},
                 pipeline_path="/pipeline/main.nf",
-                work_dir=work_dir,
+                run_dir=work_dir,
                 nextflow_bin="nextflow",
             )
 
@@ -67,7 +67,7 @@ async def test_launch_run_sets_failed_on_nonzero_exit(db_path, tmp_path):
                 run_id="run-2",
                 params={},
                 pipeline_path="/pipeline/main.nf",
-                work_dir=work_dir,
+                run_dir=work_dir,
                 nextflow_bin="nextflow",
             )
 

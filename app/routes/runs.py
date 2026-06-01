@@ -37,7 +37,7 @@ async def submit_run(
         run_id=run_id,
         params=body.params,
         pipeline_path=cfg.PIPELINE_PATH,
-        work_dir=cfg.WORK_DIR,
+        run_dir=cfg.RUN_DIR,
         nextflow_bin=cfg.NEXTFLOW_BIN,
     )
     return SubmitResponse(id=run_id, status=RunStatus.queued)
@@ -65,7 +65,7 @@ async def get_run_detail(run_id: str, request: Request) -> RunResponse:
 @router.get("/{run_id}/logs", response_class=PlainTextResponse)
 async def get_run_logs(run_id: str, request: Request) -> str:
     cfg = request.app.state.config
-    log_path = Path(cfg.WORK_DIR) / run_id / "nextflow.log"
+    log_path = Path(cfg.RUN_DIR) / run_id / "nextflow.log"
     if not log_path.exists():
         return ""
     return log_path.read_text()
