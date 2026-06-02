@@ -62,16 +62,6 @@ Useful endpoints:
 - `GET /runs/{run_id}/logs` - read the Nextflow log for a run
 - `DELETE /runs/{run_id}` - cancel a running job
 
-Example submit request:
-
-```bash
-curl -X POST http://localhost:8000/runs \
-  -H 'Content-Type: application/json' \
-  -d '{"params":{"input":"/path/to/input.json"}}'
-```
-
-You can also add `"profile": "docker,test"` to run the pipeline with the test profile.
-
 ## Result Structure
 
 Each submission gets its own run directory under `data/runs/<run_id>/`.
