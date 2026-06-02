@@ -28,7 +28,7 @@ async def test_launch_run_sets_running_status(db_path, tmp_path):
     work_dir = str(tmp_path / "work")
     async with aiosqlite.connect(db_path) as db:
         await init_db(db)
-        await insert_run(db, run_id="run-1", params={"input": "x", "outdir": "/out"}, created_at="2026-01-01T00:00:00Z")
+        await insert_run(db, run_id="run-1", params={"input": "x", "outdir": "/out"}, command="nextflow run pipeline", run_dir=work_dir, created_at="2026-01-01T00:00:00Z")
 
         mock_proc = AsyncMock()
         mock_proc.pid = 42
@@ -39,10 +39,7 @@ async def test_launch_run_sets_running_status(db_path, tmp_path):
             await launch_run(
                 db=db,
                 run_id="run-1",
-                params={"input": "x", "outdir": "/out"},
-                pipeline_path="/pipeline/main.nf",
-                run_dir=work_dir,
-                nextflow_bin="nextflow",
+                cmd=["nextflow", "run", "/pipeline/main.nf"],
             )
 
         row = await get_run(db, "run-1")
@@ -54,7 +51,7 @@ async def test_launch_run_sets_failed_on_nonzero_exit(db_path, tmp_path):
     work_dir = str(tmp_path / "work")
     async with aiosqlite.connect(db_path) as db:
         await init_db(db)
-        await insert_run(db, run_id="run-2", params={}, created_at="2026-01-01T00:00:00Z")
+        await insert_run(db, run_id="run-2", params={}, command="nextflow run pipeline", run_dir=work_dir, created_at="2026-01-01T00:00:00Z")
 
         mock_proc = AsyncMock()
         mock_proc.pid = 99
@@ -65,10 +62,7 @@ async def test_launch_run_sets_failed_on_nonzero_exit(db_path, tmp_path):
             await launch_run(
                 db=db,
                 run_id="run-2",
-                params={},
-                pipeline_path="/pipeline/main.nf",
-                run_dir=work_dir,
-                nextflow_bin="nextflow",
+                cmd=["nextflow", "run", "/pipeline/main.nf"],
             )
 
         row = await get_run(db, "run-2")
@@ -81,17 +75,14 @@ async def test_launch_run_sets_failed_when_subprocess_cannot_start(db_path, tmp_
     work_dir = str(tmp_path / "work")
     async with aiosqlite.connect(db_path) as db:
         await init_db(db)
-        await insert_run(db, run_id="run-3", params={}, created_at="2026-01-01T00:00:00Z")
+        await insert_run(db, run_id="run-3", params={}, command="nextflow run pipeline", run_dir=work_dir, created_at="2026-01-01T00:00:00Z")
 
         with patch("app.runner.asyncio.create_subprocess_exec", side_effect=RuntimeError("boom")):
             with pytest.raises(RuntimeError, match="boom"):
                 await launch_run(
                     db=db,
                     run_id="run-3",
-                    params={},
-                    pipeline_path="/pipeline/main.nf",
-                    run_dir=work_dir,
-                    nextflow_bin="nextflow",
+                    cmd=["nextflow", "run", "/pipeline/main.nf"],
                 )
 
         row = await get_run(db, "run-3")
@@ -102,7 +93,7 @@ async def test_launch_run_sets_failed_when_subprocess_cannot_start(db_path, tmp_
 async def test_cancel_run_sends_sigterm(db_path):
     async with aiosqlite.connect(db_path) as db:
         await init_db(db)
-        await insert_run(db, run_id="run-3", params={}, created_at="2026-01-01T00:00:00Z")
+        await insert_run(db, run_id="run-3", params={}, command="nextflow run pipeline", run_dir="/runs/run-3", created_at="2026-01-01T00:00:00Z")
         from app.database import update_run
         await update_run(db, "run-3", status=RunStatus.running, pid=12345)
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 import aiosqlite
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response
 
 from app.database import get_run, insert_run, list_runs
@@ -29,18 +29,20 @@ async def submit_run(
     db = _get_db(request)
     cfg = request.app.state.config
     run_id = str(uuid.uuid4())
+    run_dir = Path(cfg.RUN_DIR) / run_id
+    run_work_dir = run_dir / "work"
+    run_work_dir.mkdir(parents=True, exist_ok=True)
+    log_path = run_dir / "nextflow.log"
+    outdir = run_dir / "results"
+
+    cmd = [cfg.NEXTFLOW_BIN, "-log", str(log_path), "run", cfg.PIPELINE_PATH, "-c", "nextflow.config", "-profile", body.profile, "-work-dir", str(run_work_dir)]
+    for key, value in body.params.items():
+        cmd += [f"--{key}", str(value)]
+    cmd += ["--outdir", str(outdir)]
+
     created_at = datetime.now(timezone.utc).isoformat()
-    await insert_run(db, run_id=run_id, params=body.params, created_at=created_at)
-    background_tasks.add_task(
-        launch_run,
-        db=db,
-        run_id=run_id,
-        params=body.params,
-        profile=body.profile,
-        pipeline_path=cfg.PIPELINE_PATH,
-        run_dir=cfg.RUN_DIR,
-        nextflow_bin=cfg.NEXTFLOW_BIN,
-    )
+    await insert_run(db, run_id=run_id, params=body.params, command=" ".join(cmd), run_dir=str(run_dir), created_at=created_at)
+    background_tasks.add_task(launch_run, db=db, run_id=run_id, cmd=cmd)
     return SubmitResponse(id=run_id, status=RunStatus.queued)
 
 

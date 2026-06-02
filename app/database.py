@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS runs (
     id          TEXT PRIMARY KEY,
     status      TEXT NOT NULL DEFAULT 'queued',
     params      TEXT NOT NULL DEFAULT '{}',
+    command     TEXT,
+    run_dir     TEXT,
     pid         INTEGER,
     created_at  TEXT NOT NULL,
     started_at  TEXT,
@@ -34,11 +36,13 @@ async def insert_run(
     db: aiosqlite.Connection,
     run_id: str,
     params: dict[str, Any],
+    command: str,
+    run_dir: str,
     created_at: str,
 ) -> str:
     await db.execute(
-        "INSERT INTO runs (id, status, params, created_at) VALUES (?, 'queued', ?, ?)",
-        (run_id, json.dumps(params), created_at),
+        "INSERT INTO runs (id, status, params, command, run_dir, created_at) VALUES (?, 'queued', ?, ?, ?, ?)",
+        (run_id, json.dumps(params), command, run_dir, created_at),
     )
     await db.commit()
     return run_id

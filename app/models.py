@@ -26,6 +26,8 @@ class RunResponse(BaseModel):
     id: str
     status: RunStatus
     params: dict[str, Any]
+    command: Optional[str]
+    run_dir: Optional[str]
     created_at: str
     started_at: Optional[str]
     finished_at: Optional[str]
