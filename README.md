@@ -34,7 +34,15 @@ Notes:
 - `DATA_DIR` is mounted into the container and holds run data and the SQLite database.
 - `PIPELINE_DIR` must point at the cloned `nf-core/diseasemodulediscovery` repository.
 
-### 4. Build and launch the container
+### 4. Configure `nextflow.config` (optional)
+
+A `nextflow.config` file in the repository root is automatically passed to every pipeline run via the `-c` flag. Use it to set Nextflow options that apply to all runs, for example:
+
+```groovy
+cleanup = true
+```
+
+### 5. Build and launch the container
 
 ```bash
 docker compose up --build
@@ -114,3 +122,13 @@ curl -s http://localhost:8000/runs
 ```
 
 If you omit `profile`, the API uses `docker` by default.
+
+## Run tests
+```bash
+docker compose run --build --rm nextflow-api python3.11 -m pytest tests/
+```
+
+## Run interactive session
+```bash
+docker compose run --build --rm nextflow-api bash
+```
