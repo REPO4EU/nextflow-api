@@ -26,9 +26,11 @@ async def launch_run(
     db: aiosqlite.Connection,
     run_id: str,
     cmd: list[str],
+    cwd: str,
 ) -> None:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
+        cwd=cwd,
         stdout=asyncio.subprocess.DEVNULL,
     )
 

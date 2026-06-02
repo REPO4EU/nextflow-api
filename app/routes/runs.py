@@ -1,16 +1,17 @@
 from __future__ import annotations
-import asyncio
+import json
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import aiosqlite
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse, Response
 
 from app.database import get_run, insert_run, list_runs
-from app.models import RunListItem, RunResponse, RunStatus, SubmitRequest, SubmitResponse
+from app.models import RunListItem, RunResponse, RunStatus, SubmitResponse
 from app.runner import cancel_run, launch_run
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -22,27 +23,41 @@ def _get_db(request: Request) -> aiosqlite.Connection:
 
 @router.post("", response_model=SubmitResponse, status_code=202)
 async def submit_run(
-    body: SubmitRequest,
     background_tasks: BackgroundTasks,
     request: Request,
+    params: str = Form(default="{}"),
+    profile: str = Form(default="docker"),
+    files: list[UploadFile] = File(default=[]),
 ) -> SubmitResponse:
+    try:
+        params_dict = json.loads(params)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="params must be valid JSON")
+
     db = _get_db(request)
     cfg = request.app.state.config
     run_id = str(uuid.uuid4())
     run_dir = Path(cfg.RUN_DIR) / run_id
-    run_work_dir = run_dir / "work"
-    run_work_dir.mkdir(parents=True, exist_ok=True)
-    log_path = run_dir / "nextflow.log"
-    outdir = run_dir / "results"
+    (run_dir / "work").mkdir(parents=True, exist_ok=True)
 
-    cmd = [cfg.NEXTFLOW_BIN, "-log", str(log_path), "run", cfg.PIPELINE_PATH, "-c", "nextflow.config", "-profile", body.profile, "-work-dir", str(run_work_dir)]
-    for key, value in body.params.items():
+    if files:
+        input_dir = run_dir / "input"
+        input_dir.mkdir(exist_ok=True)
+        for upload in files:
+            filename = Path(upload.filename).name
+            if not filename:
+                raise HTTPException(status_code=422, detail="Invalid filename")
+            with (input_dir / filename).open("wb") as f:
+                shutil.copyfileobj(upload.file, f)
+
+    cmd = [cfg.NEXTFLOW_BIN, "-log", "nextflow.log", "run", cfg.PIPELINE_PATH, "-c", "/app/nextflow.config", "-profile", profile, "-work-dir", "work"]
+    for key, value in params_dict.items():
         cmd += [f"--{key}", str(value)]
-    cmd += ["--outdir", str(outdir)]
+    cmd += ["--outdir", "results"]
 
     created_at = datetime.now(timezone.utc).isoformat()
-    await insert_run(db, run_id=run_id, params=body.params, command=" ".join(cmd), run_dir=str(run_dir), created_at=created_at)
-    background_tasks.add_task(launch_run, db=db, run_id=run_id, cmd=cmd)
+    await insert_run(db, run_id=run_id, params=params_dict, command=" ".join(cmd), run_dir=str(run_dir), created_at=created_at)
+    background_tasks.add_task(launch_run, db=db, run_id=run_id, cmd=cmd, cwd=str(run_dir))
     return SubmitResponse(id=run_id, status=RunStatus.queued)
 
 

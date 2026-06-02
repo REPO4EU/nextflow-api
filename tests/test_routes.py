@@ -1,3 +1,4 @@
+import json
 import os
 import pytest
 import aiosqlite
@@ -32,7 +33,7 @@ async def client(tmp_path):
 @pytest.mark.asyncio
 async def test_submit_run_returns_202(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        resp = await client.post("/runs", json={"params": {"input": "x", "outdir": "/out"}})
+        resp = await client.post("/runs", data={"params": json.dumps({"input": "x", "outdir": "/out"})})
     assert resp.status_code == 202
     data = resp.json()
     assert data["status"] == "queued"
@@ -54,13 +55,13 @@ async def test_submit_run_creates_artifacts_and_completes(client):
             (self._outdir / "result.txt").write_text("ok\n")
             return 0
 
-    async def fake_create_subprocess_exec(*cmd, **kwargs):
-        log_path = Path(cmd[cmd.index("-log") + 1])
-        outdir = Path(cmd[-1])
+    async def fake_create_subprocess_exec(*cmd, cwd=None, **kwargs):
+        log_path = Path(cwd) / cmd[cmd.index("-log") + 1]
+        outdir = Path(cwd) / cmd[-1]
         return FakeProcess(log_path, outdir)
 
     with patch("app.runner.asyncio.create_subprocess_exec", side_effect=fake_create_subprocess_exec):
-        resp = await client.post("/runs", json={"params": {"input": "x", "outdir": "/out"}})
+        resp = await client.post("/runs", data={"params": json.dumps({"input": "x", "outdir": "/out"})})
 
     assert resp.status_code == 202
     run_id = resp.json()["id"]
@@ -92,8 +93,8 @@ async def test_list_runs_empty(client):
 @pytest.mark.asyncio
 async def test_list_runs_status_filter(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r1 = await client.post("/runs", json={"params": {}})
-        r2 = await client.post("/runs", json={"params": {}})
+        r1 = await client.post("/runs", data={"params": json.dumps({})})
+        r2 = await client.post("/runs", data={"params": json.dumps({})})
     run_id_1 = r1.json()["id"]
 
     from app.main import app
@@ -109,7 +110,7 @@ async def test_list_runs_status_filter(client):
 @pytest.mark.asyncio
 async def test_get_logs_empty_when_no_file(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", json={"params": {}})
+        r = await client.post("/runs", data={"params": json.dumps({})})
     run_id = r.json()["id"]
     resp = await client.get(f"/runs/{run_id}/logs")
     assert resp.status_code == 200
@@ -119,7 +120,7 @@ async def test_get_logs_empty_when_no_file(client):
 @pytest.mark.asyncio
 async def test_get_logs_returns_log_contents(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", json={"params": {}})
+        r = await client.post("/runs", data={"params": json.dumps({})})
     run_id = r.json()["id"]
 
     from app.main import app
@@ -136,7 +137,7 @@ async def test_get_logs_returns_log_contents(client):
 @pytest.mark.asyncio
 async def test_cancel_non_running_run_returns_409(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", json={"params": {}})
+        r = await client.post("/runs", data={"params": json.dumps({})})
     run_id = r.json()["id"]
     resp = await client.delete(f"/runs/{run_id}")
     assert resp.status_code == 409
@@ -145,7 +146,7 @@ async def test_cancel_non_running_run_returns_409(client):
 @pytest.mark.asyncio
 async def test_cancel_running_run_returns_204(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", json={"params": {}})
+        r = await client.post("/runs", data={"params": json.dumps({})})
     run_id = r.json()["id"]
 
     from app.main import app
@@ -157,3 +158,17 @@ async def test_cancel_running_run_returns_204(client):
     assert resp.status_code == 204
 
 
+@pytest.mark.asyncio
+async def test_submit_run_with_file_upload(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        resp = await client.post(
+            "/runs",
+            data={"params": json.dumps({})},
+            files=[("files", ("samplesheet.csv", b"sample,path\nA,/data/a.fastq", "text/csv"))],
+        )
+    assert resp.status_code == 202
+    run_id = resp.json()["id"]
+
+    from app.main import app
+    input_file = Path(app.state.config.RUN_DIR) / run_id / "input" / "samplesheet.csv"
+    assert input_file.read_bytes() == b"sample,path\nA,/data/a.fastq"

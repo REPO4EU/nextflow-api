@@ -1,11 +1,7 @@
-from app.models import RunStatus, SubmitRequest, RunResponse, RunListItem
+from app.models import RunStatus, RunResponse, RunListItem
 
 def test_run_status_values():
     assert set(RunStatus) == {"queued", "running", "completed", "failed", "cancelled"}
-
-def test_submit_request_requires_params():
-    req = SubmitRequest(params={"input": "s3://bucket/file.csv", "outdir": "/data/out"})
-    assert req.params["input"] == "s3://bucket/file.csv"
 
 def test_run_response_fields():
     r = RunResponse(

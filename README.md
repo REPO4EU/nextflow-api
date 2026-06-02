@@ -87,6 +87,28 @@ ${DATA_DIR}/runs/<run_id>/
 
 The API also stores run metadata in `data/runs.db`, including status, timestamps, and exit code.
 
+## Submitting Input Files
+
+`POST /runs` accepts multipart form data with three fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `params` | JSON string | Pipeline parameters passed as `--key value` flags |
+| `profile` | string | Nextflow profile(s), e.g. `docker` or `docker,test` (default: `docker`) |
+| `files` | file(s) | Input files to upload (optional, repeatable) |
+
+Uploaded files are saved to the run's `input/` directory before the pipeline starts. The pipeline is then executed with the run directory as its working directory, so uploaded files can be referenced in `params` using the relative prefix `input/<filename>` — no absolute paths needed.
+
+Example with two input files:
+
+```bash
+curl -X POST http://localhost:8000/runs \
+  -F 'params={"seeds":"input/seeds.csv","network":"input/ppi.csv"}' \
+  -F 'profile=docker' \
+  -F 'files=@seeds.csv' \
+  -F 'files=@ppi.csv'
+```
+
 ## Curl Example Run
 
 Here is a simple end-to-end flow using `curl` after the container is up.
@@ -95,8 +117,11 @@ Submit a run and store the id:
 
 ```bash
 run_id=$(curl -s -X POST http://localhost:8000/runs \
-  -H 'Content-Type: application/json' \
-  -d '{"params":{},"profile":"docker,test"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+  -F 'params={"seeds":"input/entrez_seeds_1.csv", "network": "input/entrez_ppi.csv"}' \
+  -F 'profile=docker,test' \
+  -F 'files=@test_data/entrez_seeds_1.csv' \
+  -F 'files=@test_data/entrez_ppi.csv' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 ```
 
 ```bash

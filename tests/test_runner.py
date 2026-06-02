@@ -40,6 +40,7 @@ async def test_launch_run_sets_running_status(db_path, tmp_path):
                 db=db,
                 run_id="run-1",
                 cmd=["nextflow", "run", "/pipeline/main.nf"],
+                cwd=work_dir,
             )
 
         row = await get_run(db, "run-1")
@@ -63,6 +64,7 @@ async def test_launch_run_sets_failed_on_nonzero_exit(db_path, tmp_path):
                 db=db,
                 run_id="run-2",
                 cmd=["nextflow", "run", "/pipeline/main.nf"],
+                cwd=work_dir,
             )
 
         row = await get_run(db, "run-2")
@@ -83,6 +85,7 @@ async def test_launch_run_sets_failed_when_subprocess_cannot_start(db_path, tmp_
                     db=db,
                     run_id="run-3",
                     cmd=["nextflow", "run", "/pipeline/main.nf"],
+                    cwd=work_dir,
                 )
 
         row = await get_run(db, "run-3")

@@ -12,10 +12,6 @@ class RunStatus(str, Enum):
     cancelled = "cancelled"
 
 
-class SubmitRequest(BaseModel):
-    params: dict[str, Any]
-    profile: str = "docker"
-
 
 class SubmitResponse(BaseModel):
     id: str
