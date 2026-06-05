@@ -14,4 +14,11 @@ services:
       RUN_DIR: ${DATA_DIR}/runs
       DB_PATH: ${DATA_DIR}/runs.db
       NEXTFLOW_BIN: nextflow
+      CONSUL_ENABLED: "true"
+      CONSUL_BASE_URL: http://consul:8500
+      CONSUL_TOKEN: ${CONSUL_TOKEN}
+      CONSUL_SERVICE_ID: NextflowApi.${CI_ENVIRONMENT_NAME}
+      CONSUL_SERVICE_NAME: NextflowApi
+      CONSUL_SERVICE_API_URL: nextflow-api
+      CONSUL_SERVICE_API_PORT: 8000
     restart: unless-stopped
