@@ -20,6 +20,7 @@ class SubmitResponse(BaseModel):
 
 class RunResponse(BaseModel):
     id: str
+    user_id: Optional[str]
     status: RunStatus
     params: dict[str, Any]
     command: Optional[str]
@@ -32,6 +33,7 @@ class RunResponse(BaseModel):
 
 class RunListItem(BaseModel):
     id: str
+    user_id: str
     status: RunStatus
     created_at: str
     started_at: Optional[str]

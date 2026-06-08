@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Optional
 
 import aiosqlite
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse, Response, FileResponse
 
+from app.auth import get_current_user
 from app.database import get_run, insert_run, list_runs
 from app.models import RunListItem, RunResponse, RunStatus, SubmitResponse
 from app.runner import cancel_run, launch_run
@@ -22,6 +23,13 @@ def _get_db(request: Request) -> aiosqlite.Connection:
     return request.app.state.db
 
 
+async def _get_owned_run(db: aiosqlite.Connection, run_id: str, user_id: str) -> dict[str, object]:
+    row = await get_run(db, run_id, user_id=user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return row
+
+
 @router.post("", response_model=SubmitResponse, status_code=202)
 async def submit_run(
     background_tasks: BackgroundTasks,
@@ -29,6 +37,7 @@ async def submit_run(
     params: str = Form(default="{}"),
     profile: str = Form(default="docker"),
     files: list[UploadFile] = File(default=[]),
+    user_id: str = Depends(get_current_user),
 ) -> SubmitResponse:
     try:
         params_dict = json.loads(params)
@@ -57,7 +66,15 @@ async def submit_run(
     cmd += ["--outdir", "results"]
 
     created_at = datetime.now(timezone.utc).isoformat()
-    await insert_run(db, run_id=run_id, params=params_dict, command=" ".join(cmd), run_dir=str(run_dir), created_at=created_at)
+    await insert_run(
+        db,
+        run_id=run_id,
+        params=params_dict,
+        command=" ".join(cmd),
+        run_dir=str(run_dir),
+        created_at=created_at,
+        user_id=user_id,
+    )
     background_tasks.add_task(launch_run, db=db, run_id=run_id, cmd=cmd, cwd=str(run_dir))
     return SubmitResponse(id=run_id, status=RunStatus.queued)
 
@@ -65,24 +82,33 @@ async def submit_run(
 @router.get("", response_model=list[RunListItem])
 async def list_all_runs(
     request: Request,
+    user_id: str = Depends(get_current_user),
     status: Optional[RunStatus] = None,
 ) -> list[RunListItem]:
     db = _get_db(request)
-    rows = await list_runs(db, status=status)
+    rows = await list_runs(db, status=status, user_id=user_id)
     return [RunListItem(**r) for r in rows]
 
 
 @router.get("/{run_id}", response_model=RunResponse)
-async def get_run_detail(run_id: str, request: Request) -> RunResponse:
+async def get_run_detail(
+    run_id: str,
+    request: Request,
+    user_id: str = Depends(get_current_user),
+) -> RunResponse:
     db = _get_db(request)
-    row = await get_run(db, run_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+    row = await _get_owned_run(db, run_id, user_id)
     return RunResponse(**row)
 
 
 @router.get("/{run_id}/logs", response_class=PlainTextResponse)
-async def get_run_logs(run_id: str, request: Request) -> str:
+async def get_run_logs(
+    run_id: str,
+    request: Request,
+    user_id: str = Depends(get_current_user),
+) -> str:
+    db = _get_db(request)
+    await _get_owned_run(db, run_id, user_id)
     cfg = request.app.state.config
     log_path = Path(cfg.RUN_DIR) / run_id / "nextflow.log"
     if not log_path.exists():
@@ -91,11 +117,13 @@ async def get_run_logs(run_id: str, request: Request) -> str:
 
 
 @router.delete("/{run_id}", status_code=204, response_class=Response)
-async def cancel_run_endpoint(run_id: str, request: Request) -> Response:
+async def cancel_run_endpoint(
+    run_id: str,
+    request: Request,
+    user_id: str = Depends(get_current_user),
+) -> Response:
     db = _get_db(request)
-    row = await get_run(db, run_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+    row = await _get_owned_run(db, run_id, user_id)
     if row["status"] != RunStatus.running:
         raise HTTPException(status_code=409, detail=f"Run is not running (status: {row['status']})")
     await cancel_run(db, run_id)
@@ -112,7 +140,13 @@ def _zip_run_dir(run_dir: Path, zip_path: Path) -> Path:
 
 
 @router.get("/{run_id}/download")
-async def download_run_zip(run_id: str, request: Request) -> FileResponse:
+async def download_run_zip(
+    run_id: str,
+    request: Request,
+    user_id: str = Depends(get_current_user),
+) -> FileResponse:
+    db = _get_db(request)
+    await _get_owned_run(db, run_id, user_id)
     cfg = request.app.state.config
     run_dir = Path(cfg.RUN_DIR) / run_id
     if not run_dir.exists():

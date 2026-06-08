@@ -5,6 +5,7 @@ RUN_DIR = os.environ.get("RUN_DIR", "/data/runs")
 DB_PATH = os.environ.get("DB_PATH", "/data/runs.db")
 PORT = int(os.environ.get("PORT", "8000"))
 NEXTFLOW_BIN = os.environ.get("NEXTFLOW_BIN", "nextflow")
+JWT_SECRET = os.environ.get("JWT_SECRET")
 
 # Consul configuration
 CONSUL_ENABLED = os.environ.get("CONSUL_ENABLED", "false").lower() == "true"
