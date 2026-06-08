@@ -15,6 +15,7 @@ services:
       DB_PATH: ${DATA_DIR}/runs.db
       NEXTFLOW_BIN: nextflow
       JWT_SECRET: ${JWT_SECRET}
+      AUTH_ENABLED: ${AUTH_ENABLED}
       CONSUL_ENABLED: false
       CONSUL_BASE_URL: http://consul:8500
       CONSUL_TOKEN: ${CONSUL_TOKEN}

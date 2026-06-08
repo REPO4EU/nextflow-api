@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.config import JWT_SECRET
+import app.config as cfg
 
 security = HTTPBearer(
     auto_error=False,
@@ -22,9 +22,9 @@ def _base64url_decode(value: str) -> bytes:
 
 
 def _get_jwt_secret() -> str:
-    if not JWT_SECRET:
+    if not cfg.JWT_SECRET:
         raise RuntimeError("JWT_SECRET is not configured")
-    return JWT_SECRET
+    return cfg.JWT_SECRET
 
 
 def _decode_jwt(token: str, secret: str) -> dict[str, Any]:
@@ -56,6 +56,9 @@ def _decode_jwt(token: str, secret: str) -> dict[str, Any]:
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+    if not cfg.AUTH_ENABLED:
+        return "anonymous"
+
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=401,
@@ -65,7 +68,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
     token = credentials.credentials
     try:
-        payload = _decode_jwt(token, _get_jwt_secret())
+        payload = _decode_jwt(token, cfg.JWT_SECRET)
     except ValueError:
         raise HTTPException(
             status_code=401,

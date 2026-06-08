@@ -45,6 +45,7 @@ async def client(tmp_path):
     cfg.RUN_DIR = str(run_root)
     cfg.NEXTFLOW_BIN = "nextflow"
     cfg.JWT_SECRET = TEST_JWT_SECRET
+    cfg.AUTH_ENABLED = True
 
     from app.main import app, lifespan as app_lifespan
 
@@ -113,6 +114,22 @@ async def test_list_runs_empty(client):
     resp = await client.get("/runs", headers=auth_header("alice"))
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_authentication_can_be_disabled(client):
+    import app.config as cfg
+
+    cfg.AUTH_ENABLED = False
+
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        resp = await client.post("/runs", data={"params": json.dumps({})})
+    assert resp.status_code == 202
+
+    run_id = resp.json()["id"]
+    detail = await client.get(f"/runs/{run_id}")
+    assert detail.status_code == 200
+    assert detail.json()["user_id"] == "anonymous"
 
 
 @pytest.mark.asyncio
