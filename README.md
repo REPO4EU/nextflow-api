@@ -28,11 +28,15 @@ Create or edit `.env` in the repository root. A minimal configuration looks like
 ```env
 DATA_DIR=/absolute/path/to/data/dir/
 PIPELINE_DIR=/absolute/path/to/pipeline/dir/
+JWT_SECRET=your-jwt-secret
+AUTH_ENABLED=true
 ```
 
 Notes:
 - `DATA_DIR` is mounted into the container and holds run data and the SQLite database.
 - `PIPELINE_DIR` must point at the cloned `nf-core/diseasemodulediscovery` repository.
+- `JWT_SECRET` is used to validate incoming bearer tokens when `AUTH_ENABLED=true`.
+- Set `AUTH_ENABLED=false` to disable authentication for all protected endpoints.
 
 ### 4. Configure `nextflow.config` (optional)
 
