@@ -2,13 +2,14 @@ from __future__ import annotations
 import json
 import shutil
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import aiosqlite
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import PlainTextResponse, Response, FileResponse
 
 from app.database import get_run, insert_run, list_runs
 from app.models import RunListItem, RunResponse, RunStatus, SubmitResponse
@@ -99,3 +100,32 @@ async def cancel_run_endpoint(run_id: str, request: Request) -> Response:
         raise HTTPException(status_code=409, detail=f"Run is not running (status: {row['status']})")
     await cancel_run(db, run_id)
     return Response(status_code=204)
+
+def _zip_run_dir(run_dir: Path, zip_path: Path) -> Path:
+    # Create a zip archive of the run directory at zip_path (including the run_dir contents)
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(run_dir.rglob('*')):
+            if path.is_file():
+                archive.write(path, arcname=str(path.relative_to(run_dir)))
+    return zip_path
+
+
+@router.get("/{run_id}/download")
+async def download_run_zip(run_id: str, request: Request) -> FileResponse:
+    cfg = request.app.state.config
+    run_dir = Path(cfg.RUN_DIR) / run_id
+    if not run_dir.exists():
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    zip_path = run_dir.parent / f"{run_id}.zip"
+    # (Re)create zip archive outside the run directory to avoid nesting
+    try:
+        _zip_run_dir(run_dir, zip_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create zip: {e}")
+
+    return FileResponse(path=str(zip_path), filename=f"{run_id}.zip", media_type="application/zip")
+
+
+# (no singular `/run` alias)
