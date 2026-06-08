@@ -13,16 +13,26 @@ CREATE TABLE IF NOT EXISTS runs (
     run_dir     TEXT,
     pid         INTEGER,
     created_at  TEXT NOT NULL,
-    started_at  TEXT,
+    started_at TEXT,
     finished_at TEXT,
-    exit_code   INTEGER
+    exit_code   INTEGER,
+    user_id     TEXT NOT NULL DEFAULT ''
 )
 """
 
 
 async def init_db(db: aiosqlite.Connection) -> None:
     await db.execute(CREATE_TABLE)
+    await _ensure_user_id_column(db)
     await db.commit()
+
+
+async def _ensure_user_id_column(db: aiosqlite.Connection) -> None:
+    async with db.execute("PRAGMA table_info(runs)") as cursor:
+        rows = await cursor.fetchall()
+    columns = [row[1] for row in rows]
+    if "user_id" not in columns:
+        await db.execute("ALTER TABLE runs ADD COLUMN user_id TEXT")
 
 
 def _row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
@@ -39,18 +49,28 @@ async def insert_run(
     command: str,
     run_dir: str,
     created_at: str,
+    user_id: str,
 ) -> str:
     await db.execute(
-        "INSERT INTO runs (id, status, params, command, run_dir, created_at) VALUES (?, 'queued', ?, ?, ?, ?)",
-        (run_id, json.dumps(params), command, run_dir, created_at),
+        "INSERT INTO runs (id, status, params, command, run_dir, created_at, user_id) VALUES (?, 'queued', ?, ?, ?, ?, ?)",
+        (run_id, json.dumps(params), command, run_dir, created_at, user_id),
     )
     await db.commit()
     return run_id
 
 
-async def get_run(db: aiosqlite.Connection, run_id: str) -> Optional[dict[str, Any]]:
+async def get_run(
+    db: aiosqlite.Connection,
+    run_id: str,
+    user_id: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
     db.row_factory = aiosqlite.Row
-    async with db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)) as cursor:
+    query = "SELECT * FROM runs WHERE id = ?"
+    args: list[Any] = [run_id]
+    if user_id is not None:
+        query += " AND user_id = ?"
+        args.append(user_id)
+    async with db.execute(query, tuple(args)) as cursor:
         row = await cursor.fetchone()
     return _row_to_dict(row) if row else None
 
@@ -58,17 +78,24 @@ async def get_run(db: aiosqlite.Connection, run_id: str) -> Optional[dict[str, A
 async def list_runs(
     db: aiosqlite.Connection,
     status: Optional[RunStatus],
+    user_id: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     db.row_factory = aiosqlite.Row
-    if status is None:
-        async with db.execute("SELECT * FROM runs ORDER BY created_at DESC") as cursor:
-            rows = await cursor.fetchall()
-    else:
-        async with db.execute(
-            "SELECT * FROM runs WHERE status = ? ORDER BY created_at DESC",
-            (status.value,),
-        ) as cursor:
-            rows = await cursor.fetchall()
+    query = "SELECT * FROM runs"
+    args: list[Any] = []
+
+    if user_id is not None:
+        query += " WHERE user_id = ?"
+        args.append(user_id)
+
+    if status is not None:
+        query += " AND" if args else " WHERE"
+        query += " status = ?"
+        args.append(status.value)
+
+    query += " ORDER BY created_at DESC"
+    async with db.execute(query, tuple(args)) as cursor:
+        rows = await cursor.fetchall()
     return [_row_to_dict(r) for r in rows]
 
 
