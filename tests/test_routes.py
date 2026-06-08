@@ -135,6 +135,32 @@ async def test_get_logs_returns_log_contents(client):
 
 
 @pytest.mark.asyncio
+async def test_download_run_creates_zip_without_nested_zip(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        r = await client.post("/runs", data={"params": json.dumps({})})
+    run_id = r.json()["id"]
+
+    from app.main import app
+
+    run_dir = Path(app.state.config.RUN_DIR) / run_id
+    output_dir = run_dir / "results"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "result.txt").write_text("ok\n")
+
+    resp = await client.get(f"/runs/{run_id}/download")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/zip"
+
+    import zipfile
+    from io import BytesIO
+
+    zip_file = zipfile.ZipFile(BytesIO(resp.content))
+    names = zip_file.namelist()
+    assert any(name.endswith("result.txt") for name in names)
+    assert all(not name.endswith(".zip") for name in names)
+
+
+@pytest.mark.asyncio
 async def test_cancel_non_running_run_returns_409(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
         r = await client.post("/runs", data={"params": json.dumps({})})
