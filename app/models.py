@@ -25,6 +25,7 @@ class RunResponse(BaseModel):
     params: dict[str, Any]
     command: Optional[str]
     run_dir: Optional[str]
+    workflow_name: Optional[str]
     created_at: str
     started_at: Optional[str]
     finished_at: Optional[str]
@@ -35,6 +36,7 @@ class RunListItem(BaseModel):
     id: str
     user_id: str
     status: RunStatus
+    workflow_name: Optional[str]
     created_at: str
     started_at: Optional[str]
     finished_at: Optional[str]

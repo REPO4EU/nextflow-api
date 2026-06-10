@@ -164,6 +164,22 @@ async def test_list_runs_only_returns_items_for_current_user(client):
 
 
 @pytest.mark.asyncio
+async def test_list_runs_includes_workflow_name(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        resp = await client.post(
+            "/runs",
+            data={"params": json.dumps({}), "workflow": "example-workflow"},
+            headers=auth_header("alice"),
+        )
+    run_id = resp.json()["id"]
+
+    list_resp = await client.get("/runs", headers=auth_header("alice"))
+    assert list_resp.status_code == 200
+    items = list_resp.json()
+    assert any(item["id"] == run_id and item["workflow_name"] == "example-workflow" for item in items)
+
+
+@pytest.mark.asyncio
 async def test_get_run_returns_not_found_for_other_user(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
         alice_resp = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
@@ -182,7 +198,31 @@ async def test_delete_run_returns_not_found_for_other_user(client):
 
 
 @pytest.mark.asyncio
-async def test_get_logs_empty_when_no_file(client):
+async def test_cancel_non_running_run_returns_409(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+    run_id = r.json()["id"]
+    resp = await client.post(f"/runs/{run_id}/cancel", headers=auth_header("alice"))
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_cancel_running_run_returns_204(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+    run_id = r.json()["id"]
+
+    from app.main import app
+    db = app.state.db
+    await update_run(db, run_id, status=RunStatus.running, pid=99999)
+
+    with patch("app.runner.os.kill"):
+        resp = await client.post(f"/runs/{run_id}/cancel", headers=auth_header("alice"))
+    assert resp.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_submit_run_with_file_upload(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
         r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
@@ -239,7 +279,7 @@ async def test_cancel_non_running_run_returns_409(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
         r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
-    resp = await client.delete(f"/runs/{run_id}", headers=auth_header("alice"))
+    resp = await client.post(f"/runs/{run_id}/cancel", headers=auth_header("alice"))
     assert resp.status_code == 409
 
 
@@ -254,7 +294,7 @@ async def test_cancel_running_run_returns_204(client):
     await update_run(db, run_id, status=RunStatus.running, pid=99999)
 
     with patch("app.runner.os.kill"):
-        resp = await client.delete(f"/runs/{run_id}", headers=auth_header("alice"))
+        resp = await client.post(f"/runs/{run_id}/cancel", headers=auth_header("alice"))
     assert resp.status_code == 204
 
 
@@ -273,6 +313,44 @@ async def test_submit_run_with_file_upload(client):
     from app.main import app
     input_file = Path(app.state.config.RUN_DIR) / run_id / "input" / "samplesheet.csv"
     assert input_file.read_bytes() == b"sample,path\nA,/data/a.fastq"
+
+
+@pytest.mark.asyncio
+async def test_delete_non_running_run_removes_run_and_files(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        resp = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+    run_id = resp.json()["id"]
+
+    from app.main import app
+    run_dir = Path(app.state.config.RUN_DIR) / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "test.txt").write_text("hello")
+    zip_path = run_dir.parent / f"{run_id}.zip"
+    zip_path.write_text("dummy")
+
+    delete_resp = await client.delete(f"/runs/{run_id}", headers=auth_header("alice"))
+    assert delete_resp.status_code == 204
+    assert not run_dir.exists()
+    assert not zip_path.exists()
+
+    get_resp = await client.get(f"/runs/{run_id}", headers=auth_header("alice"))
+    assert get_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_submit_run_stores_workflow_name(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        resp = await client.post(
+            "/runs",
+            data={"params": json.dumps({}), "workflow": "my-workflow"},
+            headers=auth_header("alice"),
+        )
+    assert resp.status_code == 202
+    run_id = resp.json()["id"]
+
+    detail = await client.get(f"/runs/{run_id}", headers=auth_header("alice"))
+    assert detail.status_code == 200
+    assert detail.json()["workflow_name"] == "my-workflow"
 
 
 @pytest.mark.asyncio
