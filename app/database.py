@@ -6,33 +6,36 @@ from app.models import RunStatus
 
 CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS runs (
-    id          TEXT PRIMARY KEY,
-    status      TEXT NOT NULL DEFAULT 'queued',
-    params      TEXT NOT NULL DEFAULT '{}',
-    command     TEXT,
-    run_dir     TEXT,
-    pid         INTEGER,
-    created_at  TEXT NOT NULL,
-    started_at TEXT,
-    finished_at TEXT,
-    exit_code   INTEGER,
-    user_id     TEXT NOT NULL DEFAULT ''
+    id            TEXT PRIMARY KEY,
+    status        TEXT NOT NULL DEFAULT 'queued',
+    params        TEXT NOT NULL DEFAULT '{}',
+    command       TEXT,
+    run_dir       TEXT,
+    pid           INTEGER,
+    created_at    TEXT NOT NULL,
+    started_at    TEXT,
+    finished_at   TEXT,
+    exit_code     INTEGER,
+    user_id       TEXT NOT NULL DEFAULT '',
+    workflow_name TEXT
 )
 """
 
 
 async def init_db(db: aiosqlite.Connection) -> None:
     await db.execute(CREATE_TABLE)
-    await _ensure_user_id_column(db)
+    await _ensure_schema_columns(db)
     await db.commit()
 
 
-async def _ensure_user_id_column(db: aiosqlite.Connection) -> None:
+async def _ensure_schema_columns(db: aiosqlite.Connection) -> None:
     async with db.execute("PRAGMA table_info(runs)") as cursor:
         rows = await cursor.fetchall()
     columns = [row[1] for row in rows]
     if "user_id" not in columns:
         await db.execute("ALTER TABLE runs ADD COLUMN user_id TEXT")
+    if "workflow_name" not in columns:
+        await db.execute("ALTER TABLE runs ADD COLUMN workflow_name TEXT")
 
 
 def _row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
@@ -49,11 +52,12 @@ async def insert_run(
     command: str,
     run_dir: str,
     created_at: str,
-    user_id: str,
+    user_id: str = "",
+    workflow_name: Optional[str] = None,
 ) -> str:
     await db.execute(
-        "INSERT INTO runs (id, status, params, command, run_dir, created_at, user_id) VALUES (?, 'queued', ?, ?, ?, ?, ?)",
-        (run_id, json.dumps(params), command, run_dir, created_at, user_id),
+        "INSERT INTO runs (id, status, params, command, run_dir, created_at, user_id, workflow_name) VALUES (?, 'queued', ?, ?, ?, ?, ?, ?)",
+        (run_id, json.dumps(params), command, run_dir, created_at, user_id, workflow_name),
     )
     await db.commit()
     return run_id
@@ -129,4 +133,9 @@ async def update_run(
         return
     values.append(run_id)
     await db.execute(f"UPDATE runs SET {', '.join(fields)} WHERE id = ?", values)
+    await db.commit()
+
+
+async def delete_run(db: aiosqlite.Connection, run_id: str) -> None:
+    await db.execute("DELETE FROM runs WHERE id = ?", (run_id,))
     await db.commit()

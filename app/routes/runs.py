@@ -12,7 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from fastapi.responses import PlainTextResponse, Response, FileResponse
 
 from app.auth import get_current_user
-from app.database import get_run, insert_run, list_runs
+from app.database import delete_run, get_run, insert_run, list_runs
 from app.models import RunListItem, RunResponse, RunStatus, SubmitResponse
 from app.runner import cancel_run, launch_run
 
@@ -35,6 +35,7 @@ async def submit_run(
     background_tasks: BackgroundTasks,
     request: Request,
     params: str = Form(default="{}"),
+    workflow: str = Form(default=""),
     profile: str = Form(default="docker"),
     files: list[UploadFile] = File(default=[]),
     user_id: str = Depends(get_current_user),
@@ -74,6 +75,7 @@ async def submit_run(
         run_dir=str(run_dir),
         created_at=created_at,
         user_id=user_id,
+        workflow_name=workflow or None,
     )
     background_tasks.add_task(launch_run, db=db, run_id=run_id, cmd=cmd, cwd=str(run_dir))
     return SubmitResponse(id=run_id, status=RunStatus.queued)
@@ -116,7 +118,7 @@ async def get_run_logs(
     return log_path.read_text()
 
 
-@router.delete("/{run_id}", status_code=204, response_class=Response)
+@router.post("/{run_id}/cancel", status_code=204, response_class=Response)
 async def cancel_run_endpoint(
     run_id: str,
     request: Request,
@@ -129,6 +131,28 @@ async def cancel_run_endpoint(
     await cancel_run(db, run_id)
     return Response(status_code=204)
 
+
+@router.delete("/{run_id}", status_code=204, response_class=Response)
+async def delete_run_endpoint(
+    run_id: str,
+    request: Request,
+    user_id: str = Depends(get_current_user),
+) -> Response:
+    db = _get_db(request)
+    row = await _get_owned_run(db, run_id, user_id)
+    if row["status"] == RunStatus.running:
+        raise HTTPException(status_code=409, detail="Cannot delete a running run")
+
+    cfg = request.app.state.config
+    run_dir = Path(cfg.RUN_DIR) / run_id
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    zip_path = run_dir.parent / f"{run_id}.zip"
+    if zip_path.exists():
+        zip_path.unlink()
+
+    await delete_run(db, run_id)
+    return Response(status_code=204)
 def _zip_run_dir(run_dir: Path, zip_path: Path) -> Path:
     # Create a zip archive of the run directory at zip_path (including the run_dir contents)
     zip_path.parent.mkdir(parents=True, exist_ok=True)
