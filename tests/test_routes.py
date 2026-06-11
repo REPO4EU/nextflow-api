@@ -304,6 +304,19 @@ async def test_download_run_input_file_returns_404_when_missing(client):
 
 
 @pytest.mark.asyncio
+async def test_download_run_input_file_rejects_path_traversal(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+    run_id = r.json()["id"]
+
+    resp = await client.get(f"/runs/{run_id}/download/input/..", headers=auth_header("alice"))
+    assert resp.status_code == 422
+
+    resp = await client.get(f"/runs/{run_id}/download/input/evil%5Cfile.txt", headers=auth_header("alice"))
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_cancel_non_running_run_returns_409(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
         r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))

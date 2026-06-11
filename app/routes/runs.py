@@ -186,6 +186,15 @@ async def download_run_zip(
     return FileResponse(path=str(zip_path), filename=f"{run_id}.zip", media_type="application/zip")
 
 
+def _validate_input_filename(filename: str) -> None:
+    if not filename or filename in {".", ".."}:
+        raise HTTPException(status_code=422, detail="Invalid filename")
+    if "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=422, detail="Invalid filename")
+    if Path(filename).name != filename or Path(filename).is_absolute():
+        raise HTTPException(status_code=422, detail="Invalid filename")
+
+
 @router.get("/{run_id}/download/input/{filename}")
 async def download_run_input_file(
     run_id: str,
@@ -195,8 +204,7 @@ async def download_run_input_file(
 ) -> FileResponse:
     db = _get_db(request)
     await _get_owned_run(db, run_id, user_id)
-    if Path(filename).name != filename or Path(filename).is_absolute():
-        raise HTTPException(status_code=422, detail="Invalid filename")
+    _validate_input_filename(filename)
 
     cfg = request.app.state.config
     input_path = Path(cfg.RUN_DIR) / run_id / "input" / filename
