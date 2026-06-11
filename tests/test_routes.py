@@ -275,6 +275,35 @@ async def test_download_run_creates_zip_without_nested_zip(client):
 
 
 @pytest.mark.asyncio
+async def test_download_run_input_file_returns_file(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+    run_id = r.json()["id"]
+
+    from app.main import app
+    run_dir = Path(app.state.config.RUN_DIR) / run_id
+    input_dir = run_dir / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    file_path = input_dir / "sample.txt"
+    file_path.write_text("hello input file\n")
+
+    resp = await client.get(f"/runs/{run_id}/download/input/sample.txt", headers=auth_header("alice"))
+    assert resp.status_code == 200
+    assert resp.content.replace(b"\r\n", b"\n") == b"hello input file\n"
+    assert resp.headers["content-disposition"].startswith("attachment;")
+
+
+@pytest.mark.asyncio
+async def test_download_run_input_file_returns_404_when_missing(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+    run_id = r.json()["id"]
+
+    resp = await client.get(f"/runs/{run_id}/download/input/missing.txt", headers=auth_header("alice"))
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_cancel_non_running_run_returns_409(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
         r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))

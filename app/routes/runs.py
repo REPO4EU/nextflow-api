@@ -186,4 +186,24 @@ async def download_run_zip(
     return FileResponse(path=str(zip_path), filename=f"{run_id}.zip", media_type="application/zip")
 
 
+@router.get("/{run_id}/download/input/{filename}")
+async def download_run_input_file(
+    run_id: str,
+    filename: str,
+    request: Request,
+    user_id: str = Depends(get_current_user),
+) -> FileResponse:
+    db = _get_db(request)
+    await _get_owned_run(db, run_id, user_id)
+    if Path(filename).name != filename or Path(filename).is_absolute():
+        raise HTTPException(status_code=422, detail="Invalid filename")
+
+    cfg = request.app.state.config
+    input_path = Path(cfg.RUN_DIR) / run_id / "input" / filename
+    if not input_path.exists() or not input_path.is_file():
+        raise HTTPException(status_code=404, detail="Input file not found")
+
+    return FileResponse(path=str(input_path), filename=filename, media_type="application/octet-stream")
+
+
 # (no singular `/run` alias)
