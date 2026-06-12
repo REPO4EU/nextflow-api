@@ -63,7 +63,13 @@ async def submit_run(
 
     cmd = [cfg.NEXTFLOW_BIN, "-log", "nextflow.log", "run", cfg.PIPELINE_PATH, "-c", "/app/nextflow.config", "-profile", profile, "-work-dir", "work"]
     for key, value in params_dict.items():
-        cmd += [f"--{key}", str(value)]
+        if isinstance(value, bool):
+            if value:
+                cmd.append(f"--{key}")
+        elif value is None:
+            continue
+        else:
+            cmd += [f"--{key}", str(value)]
     cmd += ["--outdir", "results"]
 
     created_at = datetime.now(timezone.utc).isoformat()
