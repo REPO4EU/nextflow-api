@@ -67,6 +67,25 @@ async def test_submit_run_returns_202(client):
 
 
 @pytest.mark.asyncio
+async def test_submit_run_boolean_flags_are_rendered_without_values(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock) as launch_run:
+        resp = await client.post(
+            "/runs",
+            data={"params": json.dumps({"input": "x", "skip_drug_predictions": True, "skip_digest": False})},
+            headers=auth_header("alice"),
+        )
+
+    assert resp.status_code == 202
+    assert launch_run.call_count == 1
+    cmd = launch_run.call_args.kwargs["cmd"]
+    assert "--skip_drug_predictions" in cmd
+    assert "--skip_digest" not in cmd
+    assert "--input" in cmd
+    assert "x" in cmd
+    assert cmd[cmd.index("--skip_drug_predictions") + 1] != "True"
+
+
+@pytest.mark.asyncio
 async def test_submit_run_creates_artifacts_and_completes(client):
     class FakeProcess:
         def __init__(self, log_path: Path, outdir: Path):
