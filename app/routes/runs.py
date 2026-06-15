@@ -9,7 +9,7 @@ from typing import Optional
 
 import aiosqlite
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import PlainTextResponse, Response, FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 
 from app.auth import get_current_user
 from app.database import delete_run, get_run, insert_run, list_runs
@@ -28,6 +28,27 @@ async def _get_owned_run(db: aiosqlite.Connection, run_id: str, user_id: str) ->
     if row is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return row
+
+
+def _no_cache_headers() -> dict[str, str]:
+    return {
+        "Cache-Control": "no-store",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
+
+def _get_multiqc_report_path(run_dir: Path) -> Path | None:
+    multiqc_dir = run_dir / "results" / "multiqc"
+    if not multiqc_dir.exists() or not multiqc_dir.is_dir():
+        return None
+
+    preferred_report = multiqc_dir / "multiqc_report.html"
+    if preferred_report.exists() and preferred_report.is_file():
+        return preferred_report
+
+    reports = sorted(path for path in multiqc_dir.glob("*.html") if path.is_file())
+    return reports[0] if reports else None
 
 
 @router.post("", response_model=SubmitResponse, status_code=202)
@@ -122,6 +143,26 @@ async def get_run_logs(
     if not log_path.exists():
         return ""
     return log_path.read_text()
+
+
+@router.get("/{run_id}/multiqc_report", response_class=HTMLResponse)
+async def get_multiqc_report(
+    run_id: str,
+    request: Request,
+    user_id: str = Depends(get_current_user),
+) -> HTMLResponse:
+    db = _get_db(request)
+    await _get_owned_run(db, run_id, user_id)
+
+    cfg = request.app.state.config
+    report_path = _get_multiqc_report_path(Path(cfg.RUN_DIR) / run_id)
+    if report_path is None:
+        raise HTTPException(status_code=404, detail="MultiQC report not found")
+
+    return HTMLResponse(
+        content=report_path.read_text(encoding="utf-8"),
+        headers=_no_cache_headers(),
+    )
 
 
 @router.post("/{run_id}/cancel", status_code=204, response_class=Response)

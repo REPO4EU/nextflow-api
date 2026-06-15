@@ -268,6 +268,53 @@ async def test_get_logs_returns_log_contents(client):
 
 
 @pytest.mark.asyncio
+async def test_get_multiqc_report_returns_html_with_no_cache_headers(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+    run_id = r.json()["id"]
+
+    from app.main import app
+
+    report_dir = Path(app.state.config.RUN_DIR) / run_id / "results" / "multiqc"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "multiqc_report.html").write_text("<html><body>multiqc</body></html>", encoding="utf-8")
+
+    resp = await client.get(f"/runs/{run_id}/multiqc_report", headers=auth_header("alice"))
+    assert resp.status_code == 200
+    assert resp.text == "<html><body>multiqc</body></html>"
+    assert resp.headers["content-type"] == "text/html; charset=utf-8"
+    assert resp.headers["cache-control"] == "no-store"
+    assert resp.headers["pragma"] == "no-cache"
+    assert resp.headers["expires"] == "0"
+
+
+@pytest.mark.asyncio
+async def test_get_multiqc_report_returns_404_when_missing(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+    run_id = r.json()["id"]
+
+    resp = await client.get(f"/runs/{run_id}/multiqc_report", headers=auth_header("alice"))
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_multiqc_report_returns_404_for_other_user(client):
+    with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
+        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+    run_id = r.json()["id"]
+
+    from app.main import app
+
+    report_dir = Path(app.state.config.RUN_DIR) / run_id / "results" / "multiqc"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "multiqc_report.html").write_text("<html><body>multiqc</body></html>", encoding="utf-8")
+
+    resp = await client.get(f"/runs/{run_id}/multiqc_report", headers=auth_header("bob"))
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_download_run_creates_zip_without_nested_zip(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
         r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
