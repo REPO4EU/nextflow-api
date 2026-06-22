@@ -16,7 +16,7 @@ from app.database import delete_run, get_run, insert_run, list_runs
 from app.models import RunListItem, RunResponse, RunStatus, SubmitResponse
 from app.runner import cancel_run, launch_run
 
-router = APIRouter(prefix="/runs", tags=["runs"])
+router = APIRouter(prefix="/nextflow-api/runs", tags=["runs"])
 
 
 def _get_db(request: Request) -> aiosqlite.Connection:
