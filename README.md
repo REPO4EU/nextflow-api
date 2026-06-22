@@ -68,11 +68,11 @@ http://localhost:8000/docs
 
 Useful endpoints:
 
-- `POST /runs` - submit a new pipeline run
-- `GET /runs` - list runs
-- `GET /runs/{run_id}` - inspect a run
-- `GET /runs/{run_id}/logs` - read the Nextflow log for a run
-- `DELETE /runs/{run_id}` - cancel a running job
+- `POST /nextflow-api/runs` - submit a new pipeline run
+- `GET /nextflow-api/runs` - list runs
+- `GET /nextflow-api/runs/{run_id}` - inspect a run
+- `GET /nextflow-api/runs/{run_id}/logs` - read the Nextflow log for a run
+- `DELETE /nextflow-api/runs/{run_id}` - cancel a running job
 
 ## Result Structure
 
@@ -93,7 +93,7 @@ The API also stores run metadata in `data/runs.db`, including status, timestamps
 
 ## Submitting Input Files
 
-`POST /runs` accepts multipart form data with three fields:
+`POST /nextflow-api/runs` accepts multipart form data with three fields:
 
 | Field | Type | Description |
 |---|---|---|
@@ -106,7 +106,7 @@ Uploaded files are saved to the run's `input/` directory before the pipeline sta
 Example with two input files:
 
 ```bash
-curl -X POST http://localhost:8000/runs \
+curl -X POST http://localhost:8000/nextflow-api/runs \
   -F 'params={"seeds":"input/seeds.csv","network":"input/ppi.csv"}' \
   -F 'profile=docker' \
   -F 'files=@seeds.csv' \
@@ -120,7 +120,7 @@ Here is a simple end-to-end flow using `curl` after the container is up.
 Submit a run and store the id:
 
 ```bash
-run_id=$(curl -s -X POST http://localhost:8000/runs \
+run_id=$(curl -s -X POST http://localhost:8000/nextflow-api/runs \
   -F 'params={"seeds":"input/entrez_seeds_1.csv", "network": "input/entrez_ppi.csv"}' \
   -F 'profile=docker,test' \
   -F 'files=@test_data/entrez_seeds_1.csv' \
@@ -135,19 +135,19 @@ echo $run_id
 Check the run status:
 
 ```bash
-curl -s http://localhost:8000/runs/$run_id
+curl -s http://localhost:8000/nextflow-api/runs/$run_id
 ```
 
 Read the Nextflow log:
 
 ```bash
-curl -s http://localhost:8000/runs/$run_id/logs
+curl -s http://localhost:8000/nextflow-api/runs/$run_id/logs
 ```
 
 List all runs:
 
 ```bash
-curl -s http://localhost:8000/runs
+curl -s http://localhost:8000/nextflow-api/runs
 ```
 
 If you omit `profile`, the API uses `docker` by default.

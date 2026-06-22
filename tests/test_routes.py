@@ -13,6 +13,7 @@ from app.database import update_run
 from app.models import RunStatus
 
 TEST_JWT_SECRET = "test-secret"
+RUNS_PREFIX = "/nextflow-api/runs"
 
 
 def _base64url_encode(value: bytes) -> str:
@@ -59,7 +60,7 @@ async def client(tmp_path):
 @pytest.mark.asyncio
 async def test_submit_run_returns_202(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        resp = await client.post("/runs", data={"params": json.dumps({"input": "x", "outdir": "/out"})}, headers=auth_header("alice"))
+        resp = await client.post(RUNS_PREFIX, data={"params": json.dumps({"input": "x", "outdir": "/out"})}, headers=auth_header("alice"))
     assert resp.status_code == 202
     data = resp.json()
     assert data["status"] == "queued"
@@ -70,7 +71,7 @@ async def test_submit_run_returns_202(client):
 async def test_submit_run_boolean_flags_are_rendered_without_values(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock) as launch_run:
         resp = await client.post(
-            "/runs",
+            RUNS_PREFIX,
             data={"params": json.dumps({"input": "x", "skip_drug_predictions": True, "skip_digest": False})},
             headers=auth_header("alice"),
         )
@@ -106,7 +107,7 @@ async def test_submit_run_creates_artifacts_and_completes(client):
         return FakeProcess(log_path, outdir)
 
     with patch("app.runner.asyncio.create_subprocess_exec", side_effect=fake_create_subprocess_exec):
-        resp = await client.post("/runs", data={"params": json.dumps({"input": "x", "outdir": "/out"})}, headers=auth_header("alice"))
+        resp = await client.post(RUNS_PREFIX, data={"params": json.dumps({"input": "x", "outdir": "/out"})}, headers=auth_header("alice"))
 
     assert resp.status_code == 202
     run_id = resp.json()["id"]
@@ -117,20 +118,20 @@ async def test_submit_run_creates_artifacts_and_completes(client):
     assert (run_dir / "nextflow.log").read_text() == "nextflow log contents\n"
     assert (run_dir / "results" / "result.txt").read_text() == "ok\n"
 
-    detail = await client.get(f"/runs/{run_id}", headers=auth_header("alice"))
+    detail = await client.get(f"{RUNS_PREFIX}/{run_id}", headers=auth_header("alice"))
     assert detail.status_code == 200
     assert detail.json()["status"] == "completed"
 
 
 @pytest.mark.asyncio
 async def test_get_run_not_found(client):
-    resp = await client.get("/runs/nonexistent-id", headers=auth_header("alice"))
+    resp = await client.get(f"{RUNS_PREFIX}/nonexistent-id", headers=auth_header("alice"))
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_list_runs_empty(client):
-    resp = await client.get("/runs", headers=auth_header("alice"))
+    resp = await client.get(RUNS_PREFIX, headers=auth_header("alice"))
     assert resp.status_code == 200
     assert resp.json() == []
 
@@ -142,11 +143,11 @@ async def test_authentication_can_be_disabled(client):
     cfg.AUTH_ENABLED = False
 
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        resp = await client.post("/runs", data={"params": json.dumps({})})
+        resp = await client.post(RUNS_PREFIX, data={"params": json.dumps({})})
     assert resp.status_code == 202
 
     run_id = resp.json()["id"]
-    detail = await client.get(f"/runs/{run_id}")
+    detail = await client.get(f"{RUNS_PREFIX}/{run_id}")
     assert detail.status_code == 200
     assert detail.json()["user_id"] == "anonymous"
 
@@ -154,15 +155,15 @@ async def test_authentication_can_be_disabled(client):
 @pytest.mark.asyncio
 async def test_list_runs_status_filter(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r1 = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
-        r2 = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("bob"))
+        r1 = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r2 = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("bob"))
     run_id_1 = r1.json()["id"]
 
     from app.main import app
     db = app.state.db
     await update_run(db, run_id_1, status=RunStatus.completed)
 
-    resp = await client.get("/runs?status=completed", headers=auth_header("alice"))
+    resp = await client.get(f"{RUNS_PREFIX}?status=completed", headers=auth_header("alice"))
     assert resp.status_code == 200
     ids = [r["id"] for r in resp.json()]
     assert run_id_1 in ids
@@ -171,10 +172,10 @@ async def test_list_runs_status_filter(client):
 @pytest.mark.asyncio
 async def test_list_runs_only_returns_items_for_current_user(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        alice_resp = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
-        await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("bob"))
+        alice_resp = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
+        await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("bob"))
 
-    resp = await client.get("/runs", headers=auth_header("alice"))
+    resp = await client.get(RUNS_PREFIX, headers=auth_header("alice"))
     assert resp.status_code == 200
     items = resp.json()
     assert len(items) == 1
@@ -186,13 +187,13 @@ async def test_list_runs_only_returns_items_for_current_user(client):
 async def test_list_runs_includes_workflow_name(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
         resp = await client.post(
-            "/runs",
+            RUNS_PREFIX,
             data={"params": json.dumps({}), "workflow": "example-workflow"},
             headers=auth_header("alice"),
         )
     run_id = resp.json()["id"]
 
-    list_resp = await client.get("/runs", headers=auth_header("alice"))
+    list_resp = await client.get(RUNS_PREFIX, headers=auth_header("alice"))
     assert list_resp.status_code == 200
     items = list_resp.json()
     assert any(item["id"] == run_id and item["workflow_name"] == "example-workflow" for item in items)
@@ -201,34 +202,34 @@ async def test_list_runs_includes_workflow_name(client):
 @pytest.mark.asyncio
 async def test_get_run_returns_not_found_for_other_user(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        alice_resp = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        alice_resp = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
 
-    resp = await client.get(f"/runs/{alice_resp.json()['id']}", headers=auth_header("bob"))
+    resp = await client.get(f"{RUNS_PREFIX}/{alice_resp.json()['id']}", headers=auth_header("bob"))
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_delete_run_returns_not_found_for_other_user(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        alice_resp = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        alice_resp = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
 
-    resp = await client.delete(f"/runs/{alice_resp.json()['id']}", headers=auth_header("bob"))
+    resp = await client.delete(f"{RUNS_PREFIX}/{alice_resp.json()['id']}", headers=auth_header("bob"))
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_cancel_non_running_run_returns_409(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
-    resp = await client.post(f"/runs/{run_id}/cancel", headers=auth_header("alice"))
+    resp = await client.post(f"{RUNS_PREFIX}/{run_id}/cancel", headers=auth_header("alice"))
     assert resp.status_code == 409
 
 
 @pytest.mark.asyncio
 async def test_cancel_running_run_returns_204(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
 
     from app.main import app
@@ -236,16 +237,16 @@ async def test_cancel_running_run_returns_204(client):
     await update_run(db, run_id, status=RunStatus.running, pid=99999)
 
     with patch("app.runner.os.kill"):
-        resp = await client.post(f"/runs/{run_id}/cancel", headers=auth_header("alice"))
+        resp = await client.post(f"{RUNS_PREFIX}/{run_id}/cancel", headers=auth_header("alice"))
     assert resp.status_code == 204
 
 
 @pytest.mark.asyncio
 async def test_submit_run_with_file_upload(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
-    resp = await client.get(f"/runs/{run_id}/logs", headers=auth_header("alice"))
+    resp = await client.get(f"{RUNS_PREFIX}/{run_id}/logs", headers=auth_header("alice"))
     assert resp.status_code == 200
     assert resp.text == ""
 
@@ -253,7 +254,7 @@ async def test_submit_run_with_file_upload(client):
 @pytest.mark.asyncio
 async def test_get_logs_returns_log_contents(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
 
     from app.main import app
@@ -262,7 +263,7 @@ async def test_get_logs_returns_log_contents(client):
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("hello from nextflow\n")
 
-    resp = await client.get(f"/runs/{run_id}/logs", headers=auth_header("alice"))
+    resp = await client.get(f"{RUNS_PREFIX}/{run_id}/logs", headers=auth_header("alice"))
     assert resp.status_code == 200
     assert resp.text == "hello from nextflow\n"
 
@@ -270,7 +271,7 @@ async def test_get_logs_returns_log_contents(client):
 @pytest.mark.asyncio
 async def test_get_multiqc_report_returns_html_with_no_cache_headers(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
 
     from app.main import app
@@ -279,7 +280,7 @@ async def test_get_multiqc_report_returns_html_with_no_cache_headers(client):
     report_dir.mkdir(parents=True, exist_ok=True)
     (report_dir / "multiqc_report.html").write_text("<html><body>multiqc</body></html>", encoding="utf-8")
 
-    resp = await client.get(f"/runs/{run_id}/multiqc_report", headers=auth_header("alice"))
+    resp = await client.get(f"{RUNS_PREFIX}/{run_id}/multiqc_report", headers=auth_header("alice"))
     assert resp.status_code == 200
     assert resp.text == "<html><body>multiqc</body></html>"
     assert resp.headers["content-type"] == "text/html; charset=utf-8"
@@ -291,17 +292,17 @@ async def test_get_multiqc_report_returns_html_with_no_cache_headers(client):
 @pytest.mark.asyncio
 async def test_get_multiqc_report_returns_404_when_missing(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
 
-    resp = await client.get(f"/runs/{run_id}/multiqc_report", headers=auth_header("alice"))
+    resp = await client.get(f"{RUNS_PREFIX}/{run_id}/multiqc_report", headers=auth_header("alice"))
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_get_multiqc_report_returns_404_for_other_user(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
 
     from app.main import app
@@ -310,14 +311,14 @@ async def test_get_multiqc_report_returns_404_for_other_user(client):
     report_dir.mkdir(parents=True, exist_ok=True)
     (report_dir / "multiqc_report.html").write_text("<html><body>multiqc</body></html>", encoding="utf-8")
 
-    resp = await client.get(f"/runs/{run_id}/multiqc_report", headers=auth_header("bob"))
+    resp = await client.get(f"{RUNS_PREFIX}/{run_id}/multiqc_report", headers=auth_header("bob"))
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_download_run_creates_zip_without_nested_zip(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
 
     from app.main import app
@@ -327,7 +328,7 @@ async def test_download_run_creates_zip_without_nested_zip(client):
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "result.txt").write_text("ok\n")
 
-    resp = await client.get(f"/runs/{run_id}/download", headers=auth_header("alice"))
+    resp = await client.get(f"{RUNS_PREFIX}/{run_id}/download", headers=auth_header("alice"))
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/zip"
 
@@ -343,7 +344,7 @@ async def test_download_run_creates_zip_without_nested_zip(client):
 @pytest.mark.asyncio
 async def test_download_run_input_file_returns_file(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
 
     from app.main import app
@@ -353,7 +354,7 @@ async def test_download_run_input_file_returns_file(client):
     file_path = input_dir / "sample.txt"
     file_path.write_text("hello input file\n")
 
-    resp = await client.get(f"/runs/{run_id}/download/input/sample.txt", headers=auth_header("alice"))
+    resp = await client.get(f"{RUNS_PREFIX}/{run_id}/download/input/sample.txt", headers=auth_header("alice"))
     assert resp.status_code == 200
     assert resp.content.replace(b"\r\n", b"\n") == b"hello input file\n"
     assert resp.headers["content-disposition"].startswith("attachment;")
@@ -362,39 +363,39 @@ async def test_download_run_input_file_returns_file(client):
 @pytest.mark.asyncio
 async def test_download_run_input_file_returns_404_when_missing(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
 
-    resp = await client.get(f"/runs/{run_id}/download/input/missing.txt", headers=auth_header("alice"))
+    resp = await client.get(f"{RUNS_PREFIX}/{run_id}/download/input/missing.txt", headers=auth_header("alice"))
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_download_run_input_file_rejects_path_traversal(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
 
-    resp = await client.get(f"/runs/{run_id}/download/input/..", headers=auth_header("alice"))
+    resp = await client.get(f"{RUNS_PREFIX}/{run_id}/download/input/%2E%2E", headers=auth_header("alice"))
     assert resp.status_code == 422
 
-    resp = await client.get(f"/runs/{run_id}/download/input/evil%5Cfile.txt", headers=auth_header("alice"))
+    resp = await client.get(f"{RUNS_PREFIX}/{run_id}/download/input/evil%5Cfile.txt", headers=auth_header("alice"))
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_cancel_non_running_run_returns_409(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
-    resp = await client.post(f"/runs/{run_id}/cancel", headers=auth_header("alice"))
+    resp = await client.post(f"{RUNS_PREFIX}/{run_id}/cancel", headers=auth_header("alice"))
     assert resp.status_code == 409
 
 
 @pytest.mark.asyncio
 async def test_cancel_running_run_returns_204(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        r = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        r = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = r.json()["id"]
 
     from app.main import app
@@ -402,7 +403,7 @@ async def test_cancel_running_run_returns_204(client):
     await update_run(db, run_id, status=RunStatus.running, pid=99999)
 
     with patch("app.runner.os.kill"):
-        resp = await client.post(f"/runs/{run_id}/cancel", headers=auth_header("alice"))
+        resp = await client.post(f"{RUNS_PREFIX}/{run_id}/cancel", headers=auth_header("alice"))
     assert resp.status_code == 204
 
 
@@ -410,7 +411,7 @@ async def test_cancel_running_run_returns_204(client):
 async def test_submit_run_with_file_upload(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
         resp = await client.post(
-            "/runs",
+            RUNS_PREFIX,
             data={"params": json.dumps({})},
             files=[("files", ("samplesheet.csv", b"sample,path\nA,/data/a.fastq", "text/csv"))],
             headers=auth_header("alice"),
@@ -426,7 +427,7 @@ async def test_submit_run_with_file_upload(client):
 @pytest.mark.asyncio
 async def test_delete_non_running_run_removes_run_and_files(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
-        resp = await client.post("/runs", data={"params": json.dumps({})}, headers=auth_header("alice"))
+        resp = await client.post(RUNS_PREFIX, data={"params": json.dumps({})}, headers=auth_header("alice"))
     run_id = resp.json()["id"]
 
     from app.main import app
@@ -436,12 +437,12 @@ async def test_delete_non_running_run_removes_run_and_files(client):
     zip_path = run_dir.parent / f"{run_id}.zip"
     zip_path.write_text("dummy")
 
-    delete_resp = await client.delete(f"/runs/{run_id}", headers=auth_header("alice"))
+    delete_resp = await client.delete(f"{RUNS_PREFIX}/{run_id}", headers=auth_header("alice"))
     assert delete_resp.status_code == 204
     assert not run_dir.exists()
     assert not zip_path.exists()
 
-    get_resp = await client.get(f"/runs/{run_id}", headers=auth_header("alice"))
+    get_resp = await client.get(f"{RUNS_PREFIX}/{run_id}", headers=auth_header("alice"))
     assert get_resp.status_code == 404
 
 
@@ -449,14 +450,14 @@ async def test_delete_non_running_run_removes_run_and_files(client):
 async def test_submit_run_stores_workflow_name(client):
     with patch("app.routes.runs.launch_run", new_callable=AsyncMock):
         resp = await client.post(
-            "/runs",
+            RUNS_PREFIX,
             data={"params": json.dumps({}), "workflow": "my-workflow"},
             headers=auth_header("alice"),
         )
     assert resp.status_code == 202
     run_id = resp.json()["id"]
 
-    detail = await client.get(f"/runs/{run_id}", headers=auth_header("alice"))
+    detail = await client.get(f"{RUNS_PREFIX}/{run_id}", headers=auth_header("alice"))
     assert detail.status_code == 200
     assert detail.json()["workflow_name"] == "my-workflow"
 
