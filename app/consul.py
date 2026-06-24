@@ -37,7 +37,7 @@ def register_service() -> bool:
             host=host,
             port=port,
             token=cfg.CONSUL_TOKEN,
-            scheme="https",
+            scheme="http",
             verify=False
         )
         
