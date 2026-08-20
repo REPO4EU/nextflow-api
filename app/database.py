@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+from datetime import datetime, timezone
 from typing import Any, Optional
 import aiosqlite
 from app.models import RunStatus
@@ -17,7 +18,9 @@ CREATE TABLE IF NOT EXISTS runs (
     finished_at   TEXT,
     exit_code     INTEGER,
     user_id       TEXT NOT NULL DEFAULT '',
-    workflow_name TEXT
+    workflow_name TEXT,
+    command_json  TEXT,
+    launch_attempts INTEGER NOT NULL DEFAULT 0
 )
 """
 
@@ -36,6 +39,10 @@ async def _ensure_schema_columns(db: aiosqlite.Connection) -> None:
         await db.execute("ALTER TABLE runs ADD COLUMN user_id TEXT")
     if "workflow_name" not in columns:
         await db.execute("ALTER TABLE runs ADD COLUMN workflow_name TEXT")
+    if "command_json" not in columns:
+        await db.execute("ALTER TABLE runs ADD COLUMN command_json TEXT")
+    if "launch_attempts" not in columns:
+        await db.execute("ALTER TABLE runs ADD COLUMN launch_attempts INTEGER NOT NULL DEFAULT 0")
 
 
 def _row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
@@ -54,10 +61,11 @@ async def insert_run(
     created_at: str,
     user_id: str = "",
     workflow_name: Optional[str] = None,
+    command_json: Optional[str] = None,
 ) -> str:
     await db.execute(
-        "INSERT INTO runs (id, status, params, command, run_dir, created_at, user_id, workflow_name) VALUES (?, 'queued', ?, ?, ?, ?, ?, ?)",
-        (run_id, json.dumps(params), command, run_dir, created_at, user_id, workflow_name),
+        "INSERT INTO runs (id, status, params, command, run_dir, created_at, user_id, workflow_name, command_json) VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?)",
+        (run_id, json.dumps(params), command, run_dir, created_at, user_id, workflow_name, command_json),
     )
     await db.commit()
     return run_id
@@ -97,6 +105,15 @@ async def list_runs(
         query += " status = ?"
         args.append(status.value)
 
+    query = query.replace("SELECT * FROM runs", """SELECT runs.*,
+        CASE WHEN runs.status = 'queued' THEN (
+            SELECT COUNT(*) FROM runs AS queued
+            WHERE queued.status = 'queued'
+              AND queued.user_id = runs.user_id
+              AND (queued.created_at < runs.created_at
+                   OR (queued.created_at = runs.created_at AND queued.id <= runs.id))
+        ) ELSE NULL END AS queue_position
+        FROM runs""")
     query += " ORDER BY created_at DESC"
     async with db.execute(query, tuple(args)) as cursor:
         rows = await cursor.fetchall()
@@ -134,6 +151,56 @@ async def update_run(
     values.append(run_id)
     await db.execute(f"UPDATE runs SET {', '.join(fields)} WHERE id = ?", values)
     await db.commit()
+
+
+async def claim_next_queued_run(db: aiosqlite.Connection) -> Optional[dict[str, Any]]:
+    """Atomically reserve the oldest queued run for a worker slot."""
+    db.row_factory = aiosqlite.Row
+    await db.execute("BEGIN IMMEDIATE")
+    try:
+        async with db.execute(
+            "SELECT * FROM runs WHERE status = 'queued' ORDER BY created_at ASC, id ASC LIMIT 1"
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            await db.commit()
+            return None
+        await db.execute(
+            "UPDATE runs SET status = 'running', started_at = ?, launch_attempts = launch_attempts + 1 WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(), row["id"]),
+        )
+        await db.commit()
+        row = dict(row)
+        row["status"] = RunStatus.running
+        row["launch_attempts"] = row.get("launch_attempts", 0) + 1
+        return row
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def requeue_stale_running_runs(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        "UPDATE runs SET status = 'queued', pid = NULL, started_at = NULL WHERE status = 'running'"
+    )
+    await db.commit()
+
+
+async def requeue_run(db: aiosqlite.Connection, run_id: str) -> None:
+    await db.execute(
+        "UPDATE runs SET status = 'queued', pid = NULL, started_at = NULL WHERE id = ?",
+        (run_id,),
+    )
+    await db.commit()
+
+
+async def cancel_queued_run(db: aiosqlite.Connection, run_id: str, finished_at: str) -> bool:
+    cursor = await db.execute(
+        "UPDATE runs SET status = 'cancelled', finished_at = ? WHERE id = ? AND status = 'queued'",
+        (finished_at, run_id),
+    )
+    await db.commit()
+    return cursor.rowcount == 1
 
 
 async def delete_run(db: aiosqlite.Connection, run_id: str) -> None:

@@ -30,6 +30,12 @@ DATA_DIR=/absolute/path/to/data/dir/
 PIPELINE_DIR=/absolute/path/to/pipeline/dir/
 JWT_SECRET=your-jwt-secret
 AUTH_ENABLED=true
+MAX_CONCURRENT_RUNS=1
+NEXTFLOW_LOCAL_CPUS=5
+NEXTFLOW_PROCESS_SINGLE_CPUS=1
+NEXTFLOW_PROCESS_LOW_CPUS=2
+NEXTFLOW_PROCESS_MEDIUM_CPUS=3
+NEXTFLOW_PROCESS_HIGH_CPUS=5
 ```
 
 Notes:
@@ -37,6 +43,9 @@ Notes:
 - `PIPELINE_DIR` must point at the cloned `nf-core/diseasemodulediscovery` repository.
 - `JWT_SECRET` is used to validate incoming bearer tokens when `AUTH_ENABLED=true`.
 - Set `AUTH_ENABLED=false` to disable authentication for all protected endpoints.
+- `MAX_CONCURRENT_RUNS` limits how many Nextflow executions can run at once. Additional submissions remain `queued` and are processed in FIFO order.
+- `NEXTFLOW_LOCAL_CPUS` sets the local executor limit.
+- `NEXTFLOW_PROCESS_SINGLE_CPUS`, `NEXTFLOW_PROCESS_LOW_CPUS`, `NEXTFLOW_PROCESS_MEDIUM_CPUS`, and `NEXTFLOW_PROCESS_HIGH_CPUS` set CPU values for processes with the matching labels. Each value must be at least `1`.
 
 ### 4. Configure `nextflow.config` (optional)
 
@@ -72,7 +81,9 @@ Useful endpoints:
 - `GET /nextflow-api/runs` - list runs
 - `GET /nextflow-api/runs/{run_id}` - inspect a run
 - `GET /nextflow-api/runs/{run_id}/logs` - read the Nextflow log for a run
-- `DELETE /nextflow-api/runs/{run_id}` - cancel a running job
+- `POST /nextflow-api/runs/{run_id}/cancel` - cancel a queued or running job
+
+Queued runs include a user-scoped `queue_position` in the list response, starting at `1`. Non-queued runs return `null`.
 
 ## Result Structure
 

@@ -20,12 +20,12 @@ class SubmitResponse(BaseModel):
 
 class RunResponse(BaseModel):
     id: str
-    user_id: Optional[str]
+    user_id: Optional[str] = None
     status: RunStatus
     params: dict[str, Any]
     command: Optional[str]
     run_dir: Optional[str]
-    workflow_name: Optional[str]
+    workflow_name: Optional[str] = None
     created_at: str
     started_at: Optional[str]
     finished_at: Optional[str]
@@ -40,3 +40,4 @@ class RunListItem(BaseModel):
     created_at: str
     started_at: Optional[str]
     finished_at: Optional[str]
+    queue_position: Optional[int] = None

@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 import aiosqlite
-from app.database import init_db, insert_run, get_run, list_runs, update_run
+from app.database import cancel_queued_run, claim_next_queued_run, init_db, insert_run, get_run, list_runs, update_run
 from app.models import RunStatus
 
 
@@ -52,3 +52,33 @@ async def test_get_run_not_found(db_path):
         await init_db(db)
         row = await get_run(db, "nonexistent")
     assert row is None
+
+
+@pytest.mark.asyncio
+async def test_claim_next_run_is_fifo_and_reports_user_queue_positions(db_path):
+    async with aiosqlite.connect(db_path) as db:
+        await init_db(db)
+        await insert_run(db, "r1", {}, "nextflow run one", "/runs/r1", "2026-01-01T00:00:00Z", user_id="alice")
+        await insert_run(db, "r2", {}, "nextflow run two", "/runs/r2", "2026-01-01T00:00:01Z", user_id="alice")
+        await insert_run(db, "r3", {}, "nextflow run three", "/runs/r3", "2026-01-01T00:00:02Z", user_id="bob")
+
+        rows = await list_runs(db, status=None, user_id="alice")
+        claimed = await claim_next_queued_run(db)
+        remaining = await list_runs(db, status=None, user_id="alice")
+
+    assert [row["queue_position"] for row in rows] == [2, 1]
+    assert claimed["id"] == "r1"
+    assert remaining[0]["queue_position"] == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_queued_run_does_not_cancel_claimed_run(db_path):
+    async with aiosqlite.connect(db_path) as db:
+        await init_db(db)
+        await insert_run(db, "r1", {}, "nextflow run one", "/runs/r1", "2026-01-01T00:00:00Z")
+        await claim_next_queued_run(db)
+        cancelled = await cancel_queued_run(db, "r1", "2026-01-01T00:00:01Z")
+        row = await get_run(db, "r1")
+
+    assert cancelled is False
+    assert row["status"] == RunStatus.running
