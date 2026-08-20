@@ -7,6 +7,7 @@ PORT = int(os.environ.get("PORT", "8000"))
 NEXTFLOW_BIN = os.environ.get("NEXTFLOW_BIN", "nextflow")
 JWT_SECRET = os.environ.get("JWT_SECRET")
 AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "true").lower() == "true"
+MAX_CONCURRENT_RUNS = int(os.environ.get("MAX_CONCURRENT_RUNS", "1"))
 
 # Consul configuration
 CONSUL_ENABLED = os.environ.get("CONSUL_ENABLED", "false").lower() == "true"

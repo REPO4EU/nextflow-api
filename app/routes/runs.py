@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Optional
 
 import aiosqlite
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 
 from app.auth import get_current_user
-from app.database import delete_run, get_run, insert_run, list_runs
+from app.database import cancel_queued_run, delete_run, get_run, insert_run, list_runs
 from app.models import RunListItem, RunResponse, RunStatus, SubmitResponse
-from app.runner import cancel_run, launch_run
+from app.runner import cancel_run
 
 router = APIRouter(prefix="/nextflow-api/runs", tags=["runs"])
 
@@ -53,7 +53,6 @@ def _get_multiqc_report_path(run_dir: Path) -> Path | None:
 
 @router.post("", response_model=SubmitResponse, status_code=202)
 async def submit_run(
-    background_tasks: BackgroundTasks,
     request: Request,
     params: str = Form(default="{}"),
     workflow: str = Form(default=""),
@@ -103,8 +102,9 @@ async def submit_run(
         created_at=created_at,
         user_id=user_id,
         workflow_name=workflow or None,
+        command_json=json.dumps(cmd),
     )
-    background_tasks.add_task(launch_run, db=db, run_id=run_id, cmd=cmd, cwd=str(run_dir))
+    request.app.state.queue_worker.notify()
     return SubmitResponse(id=run_id, status=RunStatus.queued)
 
 
@@ -173,6 +173,12 @@ async def cancel_run_endpoint(
 ) -> Response:
     db = _get_db(request)
     row = await _get_owned_run(db, run_id, user_id)
+    if row["status"] == RunStatus.queued:
+        cancelled = await cancel_queued_run(db, run_id, datetime.now(timezone.utc).isoformat())
+        if cancelled:
+            request.app.state.queue_worker.notify()
+            return Response(status_code=204)
+        row = await _get_owned_run(db, run_id, user_id)
     if row["status"] != RunStatus.running:
         raise HTTPException(status_code=409, detail=f"Run is not running (status: {row['status']})")
     await cancel_run(db, run_id)
